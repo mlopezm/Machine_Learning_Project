@@ -1,0 +1,121 @@
+---
+title: "Project_report"
+author: "Manuel L Martin"
+date: "Thursday, July 24, 2014"
+output: html_document
+---
+
+##First we get and clean the data
+
+
+```{r}
+# Read the files 
+
+set.seed(3523)
+library(caret)
+library(AppliedPredictiveModeling)
+library(kernlab)
+
+# Deal with NAs and DIV/0 and eliminate the first 7 columns which seems not # to be appropiate for estimation
+data_train = read.table("pml-training.csv",sep=",", stringsAsFactors = F, na.strings = "", header=T)
+data_train[data_train=="#DIV/0!"]=NA
+data_train=data_train[,-(1:7)]
+
+data_test = read.table("pml-testing.csv",sep=",", stringsAsFactors = F, na.strings = "", header=T)
+data_test[data_test=="#DIV/0!"]=NA
+data_test=data_test[,-(1:7)]
+
+# Transform the data frames columns in numeric
+data_train=data.frame(lapply(data_train[,-153], function(x) as.numeric(x)),classe=data_train[,153])
+index=sapply(data_train, function(x) !any(is.na(x)))
+names(index)=NULL
+data_train=data_train[,index]
+
+data_test=data.frame(lapply(data_test[,-153], function(x) as.numeric(x)))
+data_test=data_test[,index[-153]]
+
+
+# Create the partition
+inTrain = createDataPartition(data_train$roll_belt, p = 3/4)[[1]]
+training = data_train[ inTrain,]
+testing = data_train[-inTrain,]
+
+```
+
+
+## I select the feature variables using PCA and the variables that justify 90% of variance
+
+
+```{r}
+prComp=prcomp(data_train[,-53])
+cumsum(prComp$sdev)/sum(prComp$sdev)
+```
+
+
+## It can be seen that with 19 compoents we can explain 90% of variance
+
+## Next I train a Random forest with the features after applying PCA and produce a confusion matrix
+
+## Using cross validation and a range to tune the parameters
+
+
+```{r}
+preProc=preProcess(training[,-53], method="pca",pcaComp=19)
+trainPC=predict(preProc,training[,-53])
+
+# set.seed(825)
+# tuning <-  expand.grid(C = seq(1,10,1))
+# fitControl <- trainControl(method = "cv",number = 5)
+# modelFit1=train(training$classe~.,method="svmLinear",data=trainPC,trControl = fitControl,tuneGrid=tuning)
+
+set.seed(825)
+tuning <-  expand.grid(mtry = 2:5)
+fitControl <- trainControl(method = "cv",number = 5)
+modelFit2=train(training$classe~.,method="rf",data=trainPC,trControl = fitControl,tuneGrid=tuning)
+modelFit2
+
+testPC=predict(preProc,testing[,-53])
+#confusionMatrix(testing$classe,predict(modelFit1,testPC))
+confusionMatrix(testing$classe,predict(modelFit2,testPC))
+```
+
+
+## I obtain an accuracy of 0.97
+
+I have used other model based in SVM and I have obtained and accuracy of 0.53, usin the next code:
+
+- set.seed(825)
+- tuning <-  expand.grid(C = seq(1,10,1))
+- fitControl <- trainControl(method = "cv",number = 5)
+- modelFit1=train(training$classe~.,method="svmLinear",data=trainPC,trControl = fitControl,tuneGrid=tuning)
+- confusionMatrix(testing$classe,predict(modelFit1,testPC))
+
+
+so I finally use the RF model
+
+
+## Then I apply the model to predict the 20 test cases
+
+
+```{r}
+#Generate the answers
+data_testPC=predict(preProc,data_test)
+answers= predict(modelFit2,data_testPC)
+
+# Generate the files for the answers
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+
+## I expected an out-of-sample error of less that 5% considering the accuracy obtained
+
+## I have obtained a total score for the prediction of the 20 test cases of 19/20 which is in total accordance with the 5% expected out-of-sample error
+
